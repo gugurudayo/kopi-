@@ -43,6 +43,7 @@ static int gServerInitialized = 0; // 初期化フラグ
 
 //
 static int gKeyState[MAX_CLIENTS][4] = {0};
+static char gMoveDir[MAX_CLIENTS] = {0};   // ←押されてる方向（0 なら停止）
 //
 
 int gServerWeaponStats[MAX_WEAPONS][MAX_STATS_PER_WEAPON] = {
@@ -125,7 +126,23 @@ static Uint32 ServerGameLoop(Uint32 interval, void *param)
                 // 武器未選択時のフォールバック (ここでは最も弱いダメージ10とする)
                 attackDamage = 10; 
             }
+for (int i = 0; i < MAX_CLIENTS; i++) {
+    if (gMoveDir[i] == 0) continue; // 何も押されていない
 
+    int step = 10;
+    if (gMoveDir[i] == DIR_UP)    gPlayerPosY[i] -= step;
+    if (gMoveDir[i] == DIR_DOWN)  gPlayerPosY[i] += step;
+    if (gMoveDir[i] == DIR_LEFT)  gPlayerPosX[i] -= step;
+    if (gMoveDir[i] == DIR_RIGHT) gPlayerPosX[i] += step;
+
+    // 移動したら全クライアントへ通知
+    unsigned char data[MAX_DATA];
+    int dataSize = 0;
+    SetCharData2DataBlock(data, UPDATE_MOVE_COMMAND, &dataSize);
+    SetIntData2DataBlock(data, i, &dataSize);
+    SetCharData2DataBlock(data, gMoveDir[i], &dataSize);
+    SendData(ALL_CLIENTS, data, dataSize);
+}
             // 弾を移動させる
             gServerProjectiles[i].y -= SERVER_PROJECTILE_STEP;
 
@@ -282,19 +299,18 @@ int ExecuteCommand(char command,int pos)
             break;*/
 
 		//
-		int senderID = pos;
-    char moveType;    // PRESS or RELEASE
-    char direction;   // DIR_UP など
+	char pressType;     // MOVE_PRESS or MOVE_RELEASE
+    char direction;
+    RecvCharData(pos, &pressType);
+    RecvCharData(pos, &direction);
 
-    RecvCharData(senderID, &moveType);
-    RecvCharData(senderID, &direction);
-
-    if (moveType == MOVE_PRESS) {
-        gKeyState[senderID][direction] = 1;
-    } else if (moveType == MOVE_RELEASE) {
-        gKeyState[senderID][direction] = 0;
+    if (pressType == MOVE_PRESS) {
+        gMoveDir[pos] = direction;     // ←押された方向を記憶
     }
-
+    else if (pressType == MOVE_RELEASE) {
+        if (gMoveDir[pos] == direction)
+            gMoveDir[pos] = 0;         // ←離したら停止
+    }
     break;
     //
         }
